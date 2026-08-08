@@ -4,3 +4,8 @@ build/
 x86emu
 x86emu.exe
 *.o
+
+# Output from running the examples while testing, which lands wherever the
+# emulator was started from.
+/*.csv
+/a.out
