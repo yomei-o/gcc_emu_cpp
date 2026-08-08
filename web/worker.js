@@ -89,6 +89,15 @@ async function start() {
 // replaced rather than updated, so a file the student deleted is really gone.
 function stageProject(files) {
     const dir = SYSROOT + WORK;
+    // And "here" is that directory.
+    //
+    // A program that writes fopen("out.csv", "w") means "beside me", and without
+    // this it meant "/" - the file was created, nothing failed, and the page,
+    // which collects what appeared in /work, found nothing to plot.  Passing
+    // /work to emu_run only ever set PWD in the guest's environment, which is
+    // what a shell reads and not what the C library resolves against.
+    try { Module.FS.mkdirTree(dir); } catch (e) { /* already there */ }
+    Module.FS.chdir(dir);
     try {
         for (const name of Module.FS.readdir(dir)) {
             if (name === '.' || name === '..') continue;

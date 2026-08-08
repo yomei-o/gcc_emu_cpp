@@ -93,7 +93,12 @@ function check(label, argv, want) {
         failed++;
         return false;
     }
-    console.error(`  ok    ${label} (${r.seconds.toFixed(1)} s)`);
+    // How far the heap grew.  A browser will refuse to grow a wasm32 memory
+    // somewhere between one and four gigabytes depending on which browser it is,
+    // and the failure is an abort with nothing readable in it - so the number
+    // matters as much as the seconds.
+    console.error(`  ok    ${label} (${r.seconds.toFixed(1)} s,` +
+                  ` heap ${(mod.HEAPU8.length / 1048576).toFixed(0)} MB)`);
     return true;
 }
 

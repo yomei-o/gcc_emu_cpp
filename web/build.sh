@@ -37,6 +37,7 @@ $EMXX -std=c++17 -O3 -Ix86_emu_cpp/src \
     -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","FS"]' \
     -sENVIRONMENT=web,worker,node \
     -sEXIT_RUNTIME=0 \
-    -sASSERTIONS=0
+    -sASSERTIONS=1 \
+    -sDISABLE_EXCEPTION_CATCHING=0
 
 ls -l web/x86emu.js web/x86emu.wasm
