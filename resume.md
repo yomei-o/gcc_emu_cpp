@@ -35,18 +35,19 @@ Asked for, in the user's words:
 and C++ with `<vector> <map> <memory> <sstream> <algorithm> <cmath>`, at -O0 and
 -O2, compiles and runs. `sh tools/wslcheck.sh` is that check.
 
-**The page works.** The toolchain is in `guest/`, the module is in `web/`, and
-someone has compiled and run C in a browser.
+**The page works and everything is committed.** In a browser, measured on a
+quiet machine:
 
-**Uncommitted when this was written:** `guest/` now holds the gcc 6.4 tree
-(45 MB packed, down from 63) and it passes `tools/wslcheck.sh`, but the seven
-example projects have not been run against it and the WebAssembly module has not
-been rebuilt since the emulator got faster. Do both before pushing:
+    gcc -O2 hello.c        4.3 s      (6.6 s this morning)
+    g++ -O2 hello.cpp     72.1 s      (118 s)
+    the program            0.0-0.8 s
+    the toolchain           45 MB     (63 MB)
 
-    sh tools/wslprojects.sh                    # the examples, on a quiet machine
-    EMCC=... sh web/build.sh && sh tools/wslnode.sh
+Three things got it there: gcc 6.4 instead of 13.2, an emulator about 2.6x
+faster, and undoing a flag of mine that was costing 5x — see below, because that
+one is the story worth reading.
 
-What is left after that:
+What is left:
 
 1. **C++ takes one to two minutes.** See below - this is the whole job.
 2. **MNIST has never finished a run.** The data is in `web/data/` and the worker
@@ -163,6 +164,32 @@ the way to check, not `strings | grep ld-`.
 The 6.7 MB figure is a temptation and a trap: it is what *those* compiles opened.
 A student who includes `<thread>` opens a different set, and headers compress to
 nothing, so they all go in.
+
+## The flag that cost 5x, and how it went unnoticed
+
+Worth reading before touching `web/build.sh`.
+
+A C++ compile aborted in the browser with `Aborted(undefined)`. The cause was
+that emscripten's default turns every `throw` into `abort()`, so the emulator's
+own diagnostics - which are exceptions - were destroyed on the way out. Adding
+`-sDISABLE_EXCEPTION_CATCHING=0` fixed that and was the right diagnosis.
+
+It also wraps every call that can throw in JavaScript, and this emulator throws
+on faults. **A C compile went from 6.6 s to 23 s.**
+
+It stayed there for an afternoon, because in the same window gcc dropped from
+13.2 to 6.4 and the emulator got 2.6x faster - so the browser numbers read as
+"C++ is still slow" rather than "everything is slower than this morning". Two
+real improvements were hiding a regression three times their size.
+
+What caught it: the prediction and the measurement disagreed. 35 s expected from
+the arithmetic, 241 s observed. Had the arithmetic been trusted - and it was
+sound arithmetic about two sound improvements - students would have been handed
+a four-minute compile.
+
+`-fwasm-exceptions` is the native proposal, in every browser since 2023, costs
+nothing when nothing throws, and makes the module smaller (1.09 MB against 1.31).
+**If a diagnostic flag goes in, take it out.**
 
 ## Where the speed work got to (2026-08-08 evening)
 
