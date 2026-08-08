@@ -74,6 +74,20 @@ What is left:
     tools/wslpayload.sh    turns them into the tree the browser carries
     tools/wslcheck.sh      compiles and runs C and C++ against that tree
     tools/wslpack.sh       copies the tree into guest/
+    tools/wsluntar.sh      unpacks guest/tree.tar.gz through web/untar.js and
+                           compares all 5459 files against guest/tree
+    tools/wslnode.sh       the browser's own path: untar.js into MEMFS, then
+                           compile and run C and C++
+
+**Run wsluntar.sh before wslnode.sh, and never skip it.** It is seconds against
+four minutes, and it checks the thing that has broken twice: what the browser
+ends up holding. Two bugs shipped past a green wslnode.sh because that test used
+to unpack with node's `tar` - so untar.js, the only unpacker the page has, was
+never run. It read a hard link's target from the wrong offset (`ar` got `as`'s
+bytes, `as` got `ld`'s - hence `as: unrecognized option '--64'`, which is `ld`
+talking), and it did not know GNU long names, so seven C++ headers with paths
+over 100 characters were silently absent from every browser that ever loaded
+the page.
 
 Compiling is `gcc` or `g++` with every source in the project on one command
 line — the driver spawns cc1/cc1plus, as, collect2 and ld as guest processes,

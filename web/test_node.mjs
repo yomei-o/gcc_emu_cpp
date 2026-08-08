@@ -3,16 +3,21 @@
 //   node web/test_node.mjs
 //
 // This goes through the same entry point the worker uses and stages the
-// toolchain the same way the worker does - out of guest/tree.tar.gz rather than
-// from the unpacked directory beside it.  Copying the unpacked tree would be
-// easier and would test a path the page does not take; that shortcut has cost
-// this author a day before.
+// toolchain the same way the worker does - out of guest/tree.tar.gz, through
+// web/untar.js, into MEMFS.  Copying the unpacked tree would be easier and
+// would test a path the page does not take; that shortcut has cost this author
+// a day before.
+//
+// It used to unpack with node's `tar` here, which is the same shortcut wearing
+// a different hat: `tar` is not what the browser runs.  untar.js was reading a
+// hard link's target from the wrong offset and writing an empty file, and this
+// test could not have seen it - it passed, twice, while the page it stands for
+// could not execute g++.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 
 const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -31,34 +36,29 @@ globalThis.emuOutput = (fd, bytes) => {
 };
 globalThis.emuLog = (line) => console.error('[emu]', line);
 
-// The tarball, unpacked into MEMFS - what the worker does, with node's tar
-// standing in for untar.js.
+// The tarball, unpacked into MEMFS - the worker's own untar.js, the worker's
+// own hard-link handling.
+const untarBytes = require(path.join(here, 'untar.js'));
 const tarball = path.join(root, 'guest/tree.tar.gz');
 if (!fs.existsSync(tarball)) {
     console.error(`no ${tarball} - run tools/wslpack.sh first`);
     process.exit(1);
 }
 console.error(`staging ${(fs.statSync(tarball).size / 1048576).toFixed(1)} MB`);
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gccemu-'));
-execFileSync('tar', ['xzf', tarball, '-C', tmp]);
 
-function put(dir, base) {
-    for (const name of fs.readdirSync(dir, { withFileTypes: true })) {
-        const host = path.join(dir, name.name);
-        const guest = base + '/' + name.name;
-        if (name.isDirectory()) {
-            mod.FS.mkdirTree(SYSROOT + guest);
-            put(host, guest);
-        } else if (name.isSymbolicLink()) {
-            // MEMFS has symlinks, and musl's libc.so is one.
-            try { mod.FS.symlink(fs.readlinkSync(host), SYSROOT + guest); } catch (e) { /* exists */ }
-        } else {
-            mod.FS.writeFile(SYSROOT + guest, new Uint8Array(fs.readFileSync(host)));
-        }
-    }
+function writeInto(p, data) {
+    const full = SYSROOT + p;
+    const dir = full.slice(0, full.lastIndexOf('/'));
+    if (dir) mod.FS.mkdirTree(dir);
+    mod.FS.writeFile(full, data);
 }
+
 mod.FS.mkdirTree(SYSROOT);
-put(tmp, '');
+untarBytes(zlib.gunzipSync(fs.readFileSync(tarball)), (name, data, linkTo) => {
+    if (!linkTo) { writeInto('/' + name, data); return; }
+    const from = SYSROOT + '/' + linkTo.replace(/^\.\//, '');
+    writeInto('/' + name, mod.FS.readFile(from));
+});
 mod.FS.mkdirTree(SYSROOT + '/tmp');
 mod.FS.mkdirTree(SYSROOT + '/work');
 mod.ccall('emu_set_sysroot', null, ['string'], [SYSROOT]);
@@ -126,6 +126,7 @@ check('g++', ['/usr/bin/g++', '-O2', '-Wall', '/work/hello.cpp', '-o', '/work/b.
 console.error('running');
 check('b.out', ['/work/b.out'], 'C++ 123');
 
-fs.rmSync(tmp, { recursive: true, force: true });
+// Nothing to clean up: the archive goes straight from memory into MEMFS, and
+// MEMFS goes away with the process.
 console.error(failed ? `\n${failed} failed` : '\nthe WebAssembly build compiles and runs both');
 process.exit(failed ? 1 : 0);

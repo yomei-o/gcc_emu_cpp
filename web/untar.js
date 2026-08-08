@@ -26,6 +26,14 @@
     function untar(bytes, write) {
         let off = 0;
         const dec = new TextDecoder();
+        // A name too long for the header's 100 characters, carried by the
+        // member before it.  GNU tar writes one of these ('L' for a name, 'K'
+        // for a link target) rather than using the ustar prefix field, and
+        // seven of this toolchain's C++ headers are long enough to need it.
+        // Without this they were simply absent - no error, no empty file, just
+        // a header the compiler could not find.
+        let longName = '';
+        let longLink = '';
         const field = (start, len) => {
             const s = bytes.subarray(off + start, off + start + len);
             const end = s.indexOf(0);
@@ -40,15 +48,39 @@
             const size = parseInt(field(124, 12).trim() || '0', 8);
             const type = String.fromCharCode(bytes[off + 156]);
             const prefix = field(345, 155);
-            const full = prefix ? prefix + '/' + name : name;
+            const full = longName || (prefix ? prefix + '/' + name : name);
+            // Every header field has to be read here, while `off` still points
+            // at the header.  Reading one after the line below reads the *next*
+            // member's contents instead - and where those bytes are zero it
+            // comes back empty rather than wrong, so a hard link looks like an
+            // ordinary file of length zero and is written as one.  That is how
+            // g++ became a valid, empty file and `unrecognised executable
+            // format`.
+            const link = type === '1' ? (longLink || field(157, 100)) : '';
             off += 512;
             // '0' and NUL are both "regular file"; '1' is a hard link, whose
             // target is in the linkname field; '5' is a directory, which the
-            // consumer creates implicitly.
-            if (type === '0' || type === '\0') {
-                write(full, bytes.subarray(off, off + size));
-            } else if (type === '1') {
-                write(full, bytes.subarray(off, off), field(157, 100));
+            // consumer creates implicitly.  'L' and 'K' carry a long name for
+            // the member that follows, and are not files themselves.
+            if (type === 'L' || type === 'K') {
+                const s = bytes.subarray(off, off + size);
+                const end = s.indexOf(0);
+                const text = dec.decode(end < 0 ? s : s.subarray(0, end));
+                if (type === 'L') longName = text; else longLink = text;
+            } else {
+                if (type === '0' || type === '\0') {
+                    write(full, bytes.subarray(off, off + size));
+                } else if (type === '1') {
+                    // Loudly, because the quiet version of this wrote an empty
+                    // file and let the failure surface an hour later as a
+                    // compiler that could not be executed.
+                    if (!link) throw new Error(full + ': hard link with no target');
+                    write(full, bytes.subarray(off, off), link);
+                }
+                // Consumed by this member, whatever its type: a long name
+                // applies to exactly the one header after it.
+                longName = '';
+                longLink = '';
             }
             off += Math.ceil(size / 512) * 512;
         }
