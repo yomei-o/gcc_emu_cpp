@@ -3,12 +3,13 @@
 // around and decides what to show.
 import { PROJECTS } from './projects.js';
 import { MNIST } from './mnist.js';
+import { MNIST_C } from './mnist_c.js';
 import * as store from './store.js';
 import { parseCsv, chartCode, draw, CHART_TYPES } from './chart.js';
 import { makeZip, readZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
-const TEMPLATES = { ...PROJECTS, mnist: MNIST };
+const TEMPLATES = { ...PROJECTS, 'mnist-c': MNIST_C, mnist: MNIST };
 
 let worker = null;
 let project = null;      // { name, template, files, produced }
@@ -327,11 +328,14 @@ function backToOutput() {
 
 function showFile(name) {
     const ed = $('editor');
-    if (!name) { ed.value = ''; ed.disabled = true; return; }
+    if (!name) { ed.value = ''; ed.disabled = true; renderGutter(); return; }
     ed.disabled = false;
     const v = project.files[name];
     ed.value = typeof v === 'string' ? v : '(バイナリファイル)';
     ed.readOnly = typeof v !== 'string';
+    // Setting .value does not fire `input`, so the numbers would still be the
+    // last file's.
+    renderGutter();
 }
 
 // The editor's text back into the project.  Called before anything that reads
@@ -343,6 +347,22 @@ function stash() {
 
 // ---------------------------------------------------------------- saving
 
+// Is there anything to save?
+//
+// An example that has not been touched is the example, and saving it made a copy
+// under the same name in "保存したもの" - so opening three examples to look at
+// them left three saved projects that were identical to the originals.  A
+// project that has been saved before stays saved even if the last edit was
+// undone; what this stops is creating one for nothing.
+function worthSaving() {
+    if (!project) return false;
+    if (store.listSaved().some((s) => s.name === project.name)) return true;
+    const base = templateFiles(project.template);
+    const names = Object.keys(project.files);
+    if (names.length !== Object.keys(base).length) return true;
+    return names.some((f) => base[f] !== project.files[f]);
+}
+
 function scheduleSave() {
     if (!$('autosave').checked) return;
     clearTimeout(saveTimer);
@@ -351,6 +371,7 @@ function scheduleSave() {
 
 function doSave() {
     stash();
+    if (!worthSaving()) return;
     try {
         const { skipped } = store.save(project.name, {
             template: project.template,
@@ -508,7 +529,7 @@ $('project').onchange = () => {
     // project.  Including one that has never been saved - a student who edits an
     // example and switches away should find their edit when they come back.
     clearTimeout(saveTimer);
-    if ($('autosave').checked) doSave();
+    if ($('autosave').checked && worthSaving()) doSave();
     const v = $('project').value;
     if (v.startsWith('tpl:')) openTemplate(v.slice(4));
     else openSaved(v.slice(6));
@@ -570,7 +591,38 @@ $('picker').onchange = async (e) => {
 };
 $('download').onclick = downloadProject;
 
-$('editor').oninput = () => { stash(); scheduleSave(); };
+// The numbers down the left of the editor.
+//
+// gcc reports a mistake as `main.c:12:5: error`, and without these a student
+// counts rows with a finger to find line 12.
+//
+// Drawn rather than styled: a textarea cannot decorate its own lines, so this is
+// a second element holding one number per line, scrolled to match.  It stays
+// aligned because neither side wraps - see the CSS.
+function renderGutter() {
+    const ed = $('editor');
+    const g = $('gutter');
+    // A trailing newline ends the last line rather than starting a new one, so
+    // an empty document is one line and "a\n" is one line, not two.
+    const lines = ed.value ? ed.value.split('\n').length - (ed.value.endsWith('\n') ? 1 : 0)
+                           : 1;
+    const want = Math.max(lines, 1);
+    if (g.dataset.n !== String(want)) {   // typing inside a line changes nothing
+        g.dataset.n = String(want);
+        let text = '';
+        for (let i = 1; i <= want; i++) text += i + '\n';
+        g.textContent = text;
+    }
+    // Always, not only when the count changed: opening another file leaves the
+    // textarea at the top and the gutter wherever the last one was scrolled to.
+    g.scrollTop = ed.scrollTop;
+}
+
+$('editor').addEventListener('scroll', () => {
+    $('gutter').scrollTop = $('editor').scrollTop;
+});
+
+$('editor').oninput = () => { stash(); renderGutter(); scheduleSave(); };
 $('editor').onkeydown = (e) => {
     // Tab inserts a tab rather than leaving the editor, which is what a text
     // area does by default and never what someone writing code wants.
@@ -580,6 +632,10 @@ $('editor').onkeydown = (e) => {
     const at = ed.selectionStart;
     ed.value = ed.value.slice(0, at) + '    ' + ed.value.slice(ed.selectionEnd);
     ed.selectionStart = ed.selectionEnd = at + 4;
+    // Assigning .value does not fire `input`, so the indentation would sit in
+    // the textarea and never reach the project - typed, then compiled away.
+    stash();
+    scheduleSave();
 };
 
 $('run').onclick = () => {

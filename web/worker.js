@@ -2,7 +2,7 @@
 //
 // Compiling takes seconds and running a student's program can take as long as
 // the student wrote it to take, so neither happens where it would freeze the
-// page.  The worker holds the toolchain - 105 MB of it - and the emulator, and
+// page.  The worker holds the toolchain - 194 MB of it - and the emulator, and
 // keeps them across builds: staging that again per compile would cost more than
 // the compile.
 importScripts('untar.js');
@@ -80,19 +80,31 @@ async function start() {
         // design.
         status('ツールチェーンを用意しています');
     } else {
-        status('ツールチェーンを取得しています (63 MB)');
+        status('ツールチェーンを取得しています (54 MB)');
         // Beside the tree it was made from, not in web/: the payload is not part
         // of the page, and tools/wslpack.sh puts both there together.
         gz = await fetchBytes('../guest/tree.tar.gz', (got, total) =>
-            post({ type: 'progress', done: got, total: total || 63 * 1024 * 1024 }));
+            post({ type: 'progress', done: got, total: total || 54 * 1024 * 1024 }));
         // A copy for the page to keep.  postMessage would neuter the original if
         // it were transferred, and this one is about to be gunzipped.
         post({ type: 'carry', bytes: gz.slice().buffer });
     }
-    status('展開しています (105 MB)');
+    status('展開しています (194 MB)');
     // Straight into the sysroot: every path in the archive is already the path
     // the guest will use.
-    untarBytes(await gunzip(gz), (name, data) => writeInto('/' + name, data));
+    untarBytes(await gunzip(gz), (name, data, linkTo) => {
+        if (!linkTo) { writeInto('/' + name, data); return; }
+        // A hard link: the same bytes under another name.  gcc, g++ and c++ are
+        // one file, and MEMFS has no way to share it - so it is copied from the
+        // one already unpacked.
+        const from = SYSROOT + '/' + linkTo.replace(/^\.\//, '');
+        try {
+            writeInto('/' + name, Module.FS.readFile(from));
+        } catch (e) {
+            post({ type: 'out', fd: 2,
+                   text: `[emu] ${name}: ${linkTo} が見つかりません\n` });
+        }
+    });
     Module.FS.mkdirTree(SYSROOT + '/tmp');
     Module.FS.mkdirTree(SYSROOT + WORK);
     ready = true;

@@ -8,6 +8,7 @@
     color-scheme: light dark;
     --ink: #1a1a1a; --bg: #fff; --panel: #f6f6f7; --line: #0002; --faint: #6b6b70;
     --accent: #2b6cb0;
+    --code-font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root { --ink: #e8e8ea; --bg: #16171a; --panel: #1e1f24; --line: #fff2; --faint: #9a9aa2; --accent: #7aa7d8; }
@@ -40,10 +41,28 @@
   .file.on { background: var(--accent); color: #fff; }
   .file .x { opacity: .5; }
   .file .x:hover { opacity: 1; }
+  /* The editor and its line numbers, which have to agree on every metric that
+     decides where a line sits: font, size, line-height, and the padding above
+     the first one.  A gutter half a pixel out drifts a whole line by the end of
+     a long file, so the shared values live in one custom property. */
+  .edit-wrap { flex: 1; display: flex; min-height: 0; }
+  #gutter, #editor {
+    font: var(--code-font); padding-top: .7rem; padding-bottom: .7rem;
+  }
+  #gutter {
+    padding-left: .7rem; padding-right: .5rem; text-align: right;
+    color: var(--faint); background: var(--panel);
+    border-right: 1px solid var(--line);
+    overflow: hidden; user-select: none; white-space: pre; flex: none;
+  }
   #editor {
-    flex: 1; width: 100%; border: 0; resize: none; padding: .7rem .9rem;
-    font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    flex: 1; min-width: 0; border: 0; resize: none;
+    padding-left: .6rem; padding-right: .9rem;
     background: var(--bg); color: inherit; outline: none; tab-size: 4;
+    /* No soft wrapping: one line of code is one row, which is what keeps the
+       gutter true.  A long line scrolls sideways instead, as it would in any
+       editor a student meets next. */
+    white-space: pre; overflow: auto;
   }
   .right { border-left: 1px solid var(--line); }
   .tabs { display: flex; gap: .2rem; padding: .35rem .5rem; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -115,7 +134,12 @@
   </aside>
 
   <section>
-    <textarea id="editor" spellcheck="false" placeholder="ファイルを選んでください"></textarea>
+    <div class="edit-wrap">
+      <!-- Filled by app.js, and scrolled to follow the textarea. -->
+      <div id="gutter" aria-hidden="true"></div>
+      <textarea id="editor" spellcheck="false" wrap="off"
+                placeholder="ファイルを選んでください"></textarea>
+    </div>
   </section>
 
   <section class="right">

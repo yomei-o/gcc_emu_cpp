@@ -52,6 +52,21 @@ du -sh guest/tree | sed 's/^/  size:  /'
 echo "== guest/tree.tar.gz"
 # Sorted and with a fixed timestamp, so that regenerating an unchanged tree
 # produces an identical file and adds nothing to history.
+#
+# Hard links are kept as links, and untar.js copies them on the way out.
+#
+# gcc, g++ and c++ are one file under three names.  tar stores the first as
+# itself and the rest as link entries of zero length, and unpacking those in
+# MEMFS produced a `g++` that existed and was empty - so C compiled and C++
+# reported `cannot open /usr/bin/g++`, which is true and says nothing about why.
+# --hard-dereference would have been one flag instead of six lines in untar.js,
+# and measured, it costs 1.3 MB: 55.6 against 54.3.  Not the reason to prefer
+# this - the reason is that MEMFS has to be handed a real file either way, and
+# doing it here would hide from the browser that the archive has link members
+# at all.  Keep the sizes honest: they were guessed at 10 MB before measuring.
+#
+# Symlinks are dereferenced above instead, because those git itself refuses to
+# index on Windows - a different problem with the same shape.
 tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
     -czf guest/tree.tar.gz -C guest/tree .
 ls -l guest/tree.tar.gz | awk '{printf "  %.1f MB\n", $5/1048576}'
