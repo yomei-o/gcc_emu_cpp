@@ -116,14 +116,78 @@ The 6.7 MB figure is a temptation and a trap: it is what *those* compiles opened
 A student who includes `<thread>` opens a different set, and headers compress to
 nothing, so they all go in.
 
+## Next, and it is the whole job: a decoded-instruction cache
+
+**C is fine and C++ is not.** In WebAssembly, under node:
+
+| | |
+| --- | --- |
+| `gcc -O2 hello.c` | **6.6 s** |
+| running what it produced | 0.0–0.3 s |
+| `g++ -O2 hello.cpp` (iostream, vector, sort) | **118 s** |
+
+Six seconds is a usable tool. Two minutes is not, and the difference is not the
+language: it was measured apart, and here is where it goes.
+
+    9.1 s  C, nothing included
+    8.1 s  C++, nothing included        <- cc1plus itself is not the problem
+    8.8 s  C++, <cstdio> only
+   71.4 s  C++, <vector> <algorithm>    <- it jumps here
+   75.3 s  C++, <iostream>
+   78.3 s  C++, <iostream>, -O2         <- the optimiser is almost free
+   16.6 s  C++, <iostream>, -E only     <- preprocessing is 17 of the 75
+
+`<iostream>` preprocesses to 808 KB and the remaining sixty seconds are spent
+parsing it. Not preprocessing - parsing. `<vector>` and `<algorithm>` alone cost
+71 s, so this is not something about iostream. It is what a C++ standard library
+is.
+
+A precompiled header was tried and is not the answer:
+
+    142 s   no PCH
+     51 s   with one
+     198 s  to build the .gch, which is 38 MB
+
+A third of the time, for a third again on the payload, and fifty seconds is
+still too long. It is on the record so nobody spends a day rediscovering it.
+
+**So: give the CPU a decoded-instruction cache.** It is the first thing
+`x86_emu_cpp/resume.md` lists under performance, it helps everything rather than
+one language, and cc1plus parsing templates is exactly the shape it is for - a
+few hot loops executing the same bytes millions of times, decoded from scratch
+every single time.
+
+What that means concretely, in `x86_emu_cpp/src/cpu.cpp`:
+
+- `step()` currently decodes prefixes, opcode, ModRM and SIB from memory on
+  every instruction, then dispatches through a switch. The decode is pure
+  function of the bytes at RIP.
+- So: a hash map (or a direct-mapped array, which is faster and enough) from
+  guest address to a small struct holding the decoded form - opcode, operand
+  sizes, register numbers, displacement, immediate, and the length. On a hit,
+  skip straight to execution.
+- **Invalidation is the part to get right.** Guest code can be written to: a
+  loader relocating, a JIT, `mmap` of a new library over an old address. The
+  cheap and correct rule is to clear the whole cache on any write to a page that
+  has ever been decoded from - `Memory` already knows which pages exist and
+  would need a "code" bit per page. Getting this wrong produces a guest that
+  executes stale instructions, which looks like data corruption a long way
+  from the cause.
+- Measure with `tools/wslcheck.sh` (native, 5.3 s today) before touching
+  anything, and against the four cases above afterwards.
+
+A reasonable target is 3-5x. That would put C++ at fifteen to twenty seconds and
+C at two, which is a different product.
+
+Do this in `x86_emu_cpp` rather than in the copy here, and bring the copy
+forward afterwards - `voicevox_emu_cpp` gets it for free and has its own
+timings to check it against.
+
 ## Things worth deciding
 
-- **Speed in the browser.** 5.3 s natively; the WebAssembly build is usually two
-  to three times slower than that. If `hello.c` takes twenty seconds the shape of
-  the page has to change — compile on a timer rather than on a button, say.
-- **How much MNIST.** 4000 images × 3 epochs is a guess. It should be the largest
-  number that finishes in about a minute.
-- **Whether the emulator gets a decoded-instruction cache.** It is a plain
-  decode-and-execute loop; this is the single biggest lever on every number
-  above, and `x86_emu_cpp/resume.md` lists it as the first thing to try for
-  performance.
+- **How much MNIST.** 4000 images × 3 epochs is a guess made before any of it
+  was timed. It should be the largest number that finishes in about a minute,
+  and that number changes if the cache above lands.
+- **What to do about C++ until then.** The examples could stay on `<cstdio>`,
+  which compiles in 8.8 s — but a C++ course that avoids `<vector>` is not
+  teaching C++, so this is a stopgap and not a design.

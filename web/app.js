@@ -5,6 +5,7 @@ import { PROJECTS } from './projects.js';
 import { MNIST } from './mnist.js';
 import * as store from './store.js';
 import { parseCsv, chartCode, draw, CHART_TYPES } from './chart.js';
+import { makeZip, readZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
 const TEMPLATES = { ...PROJECTS, mnist: MNIST };
@@ -267,60 +268,53 @@ function saveAs(name, blob) {
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
 
-// A project as one file.  A zip would need a library; a tar does not, and the
-// browser can gzip it.  `tar xzf` on the other side, or this page's own upload.
+// A project as one file.  A zip, because a student on Windows double-clicks one
+// and gets a folder - and double-clicks a tar.gz and gets a dialog about which
+// program to use.
 async function downloadProject() {
     stash();
     const files = { ...project.files };
     for (const [n, b] of Object.entries(project.produced || {})) files[n] = b;
-    const tar = makeTar(files);
-    const gz = new Blob([tar]).stream().pipeThrough(new CompressionStream('gzip'));
-    saveAs(project.name.replace(/[^\w.-]+/g, '_') + '.tar.gz',
-           await new Response(gz).blob());
+    saveAs(project.name.replace(/[^\w.-]+/g, '_') + '.zip', await makeZip(files));
 }
 
-// Minimal ustar: 512-byte header, name and size in octal, contents padded.
-function makeTar(files) {
-    const enc = new TextEncoder();
-    const parts = [];
-    for (const [name, content] of Object.entries(files)) {
-        const data = typeof content === 'string' ? enc.encode(content)
-                                                 : new Uint8Array(content);
-        const head = new Uint8Array(512);
-        const put = (off, str) => head.set(enc.encode(str), off);
-        put(0, name.slice(0, 99));
-        put(100, '0000644\0');
-        put(108, '0000000\0');
-        put(116, '0000000\0');
-        put(124, data.length.toString(8).padStart(11, '0') + '\0');
-        put(136, Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0');
-        put(156, '0');
-        put(257, 'ustar\0' + '00');
-        // The checksum is computed with the checksum field read as spaces.
-        head.fill(32, 148, 156);
-        let sum = 0;
-        for (const b of head) sum += b;
-        put(148, sum.toString(8).padStart(6, '0') + '\0 ');
-        parts.push(head, data, new Uint8Array((512 - (data.length % 512)) % 512));
-    }
-    parts.push(new Uint8Array(1024));   // two empty blocks end the archive
-    return new Blob(parts);
-}
-
+// A file the student picked.  A zip is unpacked into the project; anything else
+// becomes a file in it.
 async function uploadFiles(list) {
     for (const file of list) {
         const buf = await file.arrayBuffer();
         const name = file.name.split(/[\\/]/).pop();
-        if (/\.(c|cc|cpp|cxx|h|hpp|txt|csv|md|json)$/i.test(name)) {
-            project.files[name] = new TextDecoder('utf-8', { fatal: false }).decode(buf);
-        } else {
-            project.files[name] = new Uint8Array(buf);
-            say(`${name}: ${(buf.byteLength / 1024).toFixed(0)} KB を読み込みました` +
-                ` (バイナリなので保存はされません)\n`);
+
+        if (/\.zip$/i.test(name)) {
+            try {
+                const inside = await readZip(buf);
+                for (const [n, bytes] of Object.entries(inside)) {
+                    // Flat, as the rest of this is: a zip made elsewhere may
+                    // have directories, and the last component is the name.
+                    addFile(n.split('/').pop(), bytes);
+                }
+                say(`${name}: ${Object.keys(inside).length} 個のファイルを取り込みました\n`);
+            } catch (e) {
+                say(`${name}: ${e.message}\n`, true);
+            }
+            continue;
         }
+        addFile(name, new Uint8Array(buf));
     }
     renderFiles();
     scheduleSave();
+}
+
+// Text stays text so it can be edited; everything else is kept as bytes and
+// said out loud, because bytes are what will not be saved.
+function addFile(name, bytes) {
+    if (/\.(c|cc|cpp|cxx|h|hpp|hh|inc|txt|csv|md|json)$/i.test(name)) {
+        project.files[name] = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    } else {
+        project.files[name] = bytes;
+        say(`${name}: ${(bytes.length / 1024).toFixed(0)} KB` +
+            ` (テキストではないので保存はされません)\n`);
+    }
 }
 
 // ---------------------------------------------------------------- the graph

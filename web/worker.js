@@ -70,9 +70,11 @@ async function start() {
         Module.ccall('emu_set_sysroot', null, ['string'], [SYSROOT]);
     }
 
-    status('ツールチェーンを取得しています (37 MB)');
-    const gz = await fetchBytes('tree.tar.gz', (got, total) =>
-        post({ type: 'progress', done: got, total: total || 38 * 1024 * 1024 }));
+    status('ツールチェーンを取得しています (57 MB)');
+    // Beside the tree it was made from, not in web/: the payload is not part of
+    // the page, and tools/wslpack.sh puts both there together.
+    const gz = await fetchBytes('../guest/tree.tar.gz', (got, total) =>
+        post({ type: 'progress', done: got, total: total || 58 * 1024 * 1024 }));
     status('展開しています (105 MB)');
     // Straight into the sysroot: every path in the archive is already the path
     // the guest will use.
@@ -139,7 +141,14 @@ self.onmessage = async (e) => {
             await start();
             stageProject(m.files);
             if (m.type === 'build' || m.rebuild !== false) {
-                status('コンパイルしています');
+                // C++ is minutes rather than seconds, and a student who does not
+                // know that assumes it has hung.  Saying so costs nothing and is
+                // the difference between waiting and giving up.  See resume.md:
+                // sixty of those seconds are cc1plus parsing the standard
+                // library's templates, and the fix is in the emulator.
+                const cpp = Object.keys(m.files).some((f) => /\.(cc|cpp|cxx)$/.test(f));
+                status(cpp ? 'コンパイルしています - C++ は 1〜2 分かかります'
+                           : 'コンパイルしています - 10 秒ほど');
                 const { result, compiler } = build(m.files, m.opts);
                 post({ type: 'built', ...result, compiler });
                 if (result.code !== 0) { post({ type: 'done' }); return; }

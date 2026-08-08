@@ -20,6 +20,27 @@ SRC=${1:-$PWD/build/tree}
 rm -rf guest/tree
 mkdir -p guest
 cp -a "$SRC" guest/tree
+
+# Symlinks become copies.
+#
+# Two reasons, either of which would be enough: git on Windows cannot index one
+# (`invalid argument`, on musl's libc.musl-x86_64.so.1), and untar.js cannot
+# create one in MEMFS - so the browser would end up with the name and no file.
+# The cost is a second copy of ld-musl (645 KB) and a few small ones, which gzip
+# takes back.
+# A link whose target is gone goes with it: tools/wslpayload.sh removes drivers
+# this does not need, and `x86_64-alpine-linux-musl-cc` pointed at one of them.
+# Left in place it is a name with nothing behind it, which git refuses to index
+# and a guest would fail to execute.
+find guest/tree -type l | while IFS= read -r link; do
+    target=$(readlink -f "$link") || target=
+    if [ -n "$target" ] && [ -f "$target" ]; then
+        rm -f "$link"
+        cp "$target" "$link"
+    else
+        rm -f "$link"
+    fi
+done
 # The empty directories a guest expects to be able to write into.  git does not
 # carry a directory, so the page makes them; these are here for the native runs.
 mkdir -p guest/tree/tmp guest/tree/work

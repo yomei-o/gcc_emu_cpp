@@ -1,0 +1,7 @@
+# The toolchain is a filesystem, not source.  Without this, git on Windows
+# rewrites the line endings of every C++ header in it on checkout, and a guest
+# compiling against CRLF headers fails in ways that have nothing to do with the
+# program being compiled.
+guest/tree/** -text
+*.tar.gz binary
+*.wasm binary
