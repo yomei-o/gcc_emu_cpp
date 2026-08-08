@@ -1,0 +1,6 @@
+# Where the toolchain is assembled from Alpine packages.  guest/tree is the
+# result and is committed; this is the workshop.
+build/
+x86emu
+x86emu.exe
+*.o
