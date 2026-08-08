@@ -109,9 +109,31 @@ function afterOpen() {
     localStorage.setItem('gccemu.last', project.name);
 }
 
+// The list of projects, rebuilt only when it has actually changed.
+//
+// Saving happens on a timer after every keystroke, and saving used to rebuild
+// this - so the dropdown was being replaced underneath whoever had just opened
+// it, and switching projects was impossible.  The signature is what the list
+// would look like; if that has not moved, only the number below it is updated.
+let projectsShown = '';
+
 function renderProjects() {
     const sel = $('project');
     const saved = store.listSaved();
+
+    const u = store.usage();
+    $('usage').textContent =
+        `${(u.bytes / 1024).toFixed(0)} KB / ${(u.limit / 1048576).toFixed(0)} MB`;
+
+    const want = project
+        ? (saved.some((s) => s.name === project.name) ? 'saved:' + project.name
+                                                      : 'tpl:' + project.template)
+        : '';
+    const signature = Object.keys(TEMPLATES).join('|') + '//' +
+                      saved.map((s) => s.name).join('|') + '//' + want;
+    if (signature === projectsShown) return;
+    projectsShown = signature;
+
     sel.innerHTML = '';
     const g1 = document.createElement('optgroup');
     g1.label = 'お手本';
@@ -133,15 +155,7 @@ function renderProjects() {
         }
         sel.appendChild(g2);
     }
-    if (project) {
-        const want = store.listSaved().some((s) => s.name === project.name)
-            ? 'saved:' + project.name
-            : 'tpl:' + project.template;
-        if ([...sel.options].some((o) => o.value === want)) sel.value = want;
-    }
-    const u = store.usage();
-    $('usage').textContent =
-        `${(u.bytes / 1024).toFixed(0)} KB / ${(u.limit / 1048576).toFixed(0)} MB`;
+    if ([...sel.options].some((o) => o.value === want)) sel.value = want;
 }
 
 // ---------------------------------------------------------------- files
@@ -394,7 +408,12 @@ for (const t of CHART_TYPES) {
 
 $('project').onchange = () => {
     stash();
-    if ($('autosave').checked && store.listSaved().some((s) => s.name === project.name)) doSave();
+    // Save what is being left, now rather than in eight hundred milliseconds:
+    // the timer that would have done it is about to be looking at a different
+    // project.  Including one that has never been saved - a student who edits an
+    // example and switches away should find their edit when they come back.
+    clearTimeout(saveTimer);
+    if ($('autosave').checked) doSave();
     const v = $('project').value;
     if (v.startsWith('tpl:')) openTemplate(v.slice(4));
     else openSaved(v.slice(6));
