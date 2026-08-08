@@ -27,6 +27,17 @@ for b in $BRANCHES; do
     fi
     mkdir -p "$root/work" "$root/tmp"
 
+    # The unpacked packages are not a working toolchain on their own - the same
+    # holes that cost this project an afternoon are in every branch.  Rather than
+    # rediscover them per version, ask the loader: run gcc once and print what it
+    # says is missing, so a failure here reads as "this branch needs X" instead
+    # of "failed".
+    if ! ./x86emu -r "$PWD/$root" /usr/bin/gcc --version > /dev/null 2>&1; then
+        echo "  $b: gcc will not start:"
+        ./x86emu -r "$PWD/$root" /usr/bin/gcc --version 2>&1 | head -4 | sed 's/^/    /'
+        continue
+    fi
+
     # The same two programs every time.  <iostream> and <vector> because those
     # are what the measurement pointed at.
     cat > "$root/work/t.c" <<'EOF'
@@ -61,12 +72,16 @@ EOF
         src=${rest%%:*}; extra=${rest#*:}
         start=$(date +%s%N)
         # shellcheck disable=SC2086
-        if ./x86emu -r "$PWD/$root" "$prog" "$opt" "$src" -o /work/a $extra > /dev/null 2>&1; then
+        # shellcheck disable=SC2086
+        if out=$(./x86emu -r "$PWD/$root" "$prog" "$opt" "$src" -o /work/a $extra 2>&1); then
             end=$(date +%s%N)
             printf '   %-14s %6.1f s\n' "$label" \
                 "$(awk "BEGIN{print ($end - $start)/1000000000}")"
         else
-            printf '   %-14s failed\n' "$label"
+            # Say why.  "failed" is what the first version of this printed, and
+            # it turned a missing library into a mystery about old compilers.
+            printf '   %-14s failed: %s\n' "$label" \
+                "$(printf '%s' "$out" | grep -m1 -iE 'error|cannot|not found' | cut -c1-90)"
         fi
     done
 done
