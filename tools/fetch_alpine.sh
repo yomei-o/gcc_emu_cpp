@@ -15,7 +15,12 @@ BRANCH=${ALPINE_BRANCH:-v3.19}
 ARCH=x86_64
 OUT=${1:-build/alpine}
 
-mkdir -p build/apk "$OUT"
+# Cached per branch, which is the whole point of naming a branch.  Sharing one
+# cache made `sh tools/wslcompare.sh v3.8 v3.12 v3.19` download v3.19 once and
+# then measure it three times, reporting gcc 13.2.1 for all three - a comparison
+# that agreed with itself perfectly and said nothing.
+APK=build/apk/$BRANCH
+mkdir -p "$APK" "$OUT"
 
 # What a compile needs, and nothing else.  gcc pulls in cc1; g++ pulls in
 # cc1plus and the C++ headers; binutils is as and ld; musl-dev is the C headers
@@ -31,12 +36,12 @@ PKGS=${ALPINE_PKGS:-"gcc g++ binutils musl musl-dev libgcc libstdc++ libstdc++-d
                      zlib zstd-libs libc-dev gmp mpfr4 mpc1 isl26
                      libgomp libatomic jansson"}
 
-index=build/apk/APKINDEX.tar.gz
+index=$APK/APKINDEX.tar.gz
 if [ ! -f "$index" ]; then
     echo "== index"
     curl -fsSL "$MIRROR/$BRANCH/main/$ARCH/APKINDEX.tar.gz" -o "$index"
 fi
-tar xzOf "$index" APKINDEX > build/apk/APKINDEX.txt
+tar xzOf "$index" APKINDEX > "$APK/APKINDEX.txt"
 
 # The index is stanzas of `K:value`; P is the name and V the version, and the
 # file is named "$P-$V.apk".
@@ -44,16 +49,16 @@ for p in $PKGS; do
     file=$(awk -v want="$p" '
         /^P:/ { name = substr($0, 3) }
         /^V:/ { if (name == want) { print name "-" substr($0, 3) ".apk"; exit } }
-    ' build/apk/APKINDEX.txt)
+    ' "$APK/APKINDEX.txt")
     if [ -z "$file" ]; then
         echo "not in the index: $p"
         continue
     fi
-    if [ ! -f "build/apk/$file" ]; then
+    if [ ! -f "$APK/$file" ]; then
         echo "== $file"
-        curl -fsSL "$MIRROR/$BRANCH/main/$ARCH/$file" -o "build/apk/$file"
+        curl -fsSL "$MIRROR/$BRANCH/main/$ARCH/$file" -o "$APK/$file"
     fi
-    tar xzf "build/apk/$file" -C "$OUT" 2>/dev/null || true
+    tar xzf "$APK/$file" -C "$OUT" 2>/dev/null || true
 done
 
 rm -f "$OUT/.PKGINFO" "$OUT/.SIGN"* 2>/dev/null || true

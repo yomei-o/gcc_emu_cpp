@@ -53,13 +53,27 @@
   .pane.on { display: block; }
   #console { white-space: pre-wrap; font: 12.5px/1.5 ui-monospace, monospace; margin: 0; }
   #console .err { color: #d24; }
+  #console .cmd { color: var(--accent); font-weight: 600; }
   .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; }
   .note { color: var(--faint); font-size: .85rem; }
   #code { width: 100%; min-height: 11rem; font: 12px/1.5 ui-monospace, monospace;
           border: 1px solid var(--line); border-radius: 5px; padding: .5rem; background: var(--panel); color: inherit; }
   canvas { width: 100%; height: 340px; border: 1px solid var(--line); border-radius: 5px; margin-top: .6rem; background: var(--bg); }
   progress { width: 100%; height: 4px; }
-  #status { color: var(--faint); font-size: .85rem; margin-left: auto; }
+  #status { color: var(--faint); font-size: .85rem; margin-left: auto;
+            display: flex; align-items: center; gap: .45rem; }
+  /* Something turning, because a compile is minutes of silence and a page that
+     shows nothing is a page that has crashed, as far as anyone can tell. */
+  .spin {
+    width: .9rem; height: .9rem; flex: none; border-radius: 50%;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    animation: turn .8s linear infinite;
+  }
+  @keyframes turn { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+  /* The elapsed seconds, which say more than the spinner does once a minute has
+     gone by: a student can see it is still counting. */
+  #elapsed { font-variant-numeric: tabular-nums; }
   .ck { display: flex; gap: .3rem; align-items: center; font-size: .85rem; color: var(--faint); }
 </style>
 
@@ -80,7 +94,8 @@
     <option value="-O2 -Wall -Wextra">-O2 -Wextra</option>
   </select>
   <button id="run" class="primary">ビルドして実行</button>
-  <span id="status"></span>
+  <button id="stop" hidden>中断</button>
+  <span id="status"><span class="spin" id="spin" hidden></span><span id="statustext"></span><span id="elapsed"></span></span>
 </header>
 <progress id="bar" value="0" max="1" hidden></progress>
 

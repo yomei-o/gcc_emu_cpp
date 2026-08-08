@@ -15,12 +15,17 @@ let project = null;      // { name, template, files, produced }
 let current = null;      // the file being edited
 let busy = false;
 let saveTimer = null;
+// The gzipped toolchain, kept by the page so that stopping a run - which kills
+// the worker - does not also throw away sixty megabytes that were already
+// downloaded.
+let carried = null;
 
 // ---------------------------------------------------------------- the worker
 
 function ensureWorker() {
     if (worker) return worker;
     worker = new Worker('worker.js');
+
     worker.onerror = (e) => {
         say('ワーカーが停止しました: ' + (e.message || 'メモリ不足かもしれません'), true);
         worker = null;
@@ -28,7 +33,7 @@ function ensureWorker() {
     };
     worker.onmessage = (e) => {
         const m = e.data;
-        if (m.type === 'status') $('status').textContent = m.text;
+        if (m.type === 'status') $('statustext').textContent = m.text;
         else if (m.type === 'progress') {
             $('bar').hidden = false;
             $('bar').max = m.total || 1;
@@ -50,19 +55,75 @@ function ensureWorker() {
             project.produced = m.files;
             renderOutputs();
             refreshCsvChoices();
+        } else if (m.type === 'carry') {
+            carried = m.bytes;
         } else if (m.type === 'done') {
             setBusy(false);
-            $('status').textContent = '';
+            $('statustext').textContent = '';
             $('bar').hidden = true;
         }
     };
+    // Handed over once, when the worker is created: postMessage copies rather
+    // than moves, and copying sixty megabytes before every compile would cost
+    // more than the download it saves.
+    worker.postMessage({ type: 'prepare', carried });
     return worker;
 }
+
+// The same thing, said out loud at start-up: the toolchain is what the student
+// is about to want, and fetching it now rather than when they press the button
+// is most of the wait gone.
+function prepareWorker() { ensureWorker(); }
+
+// The spinner, and a clock beside it.
+//
+// A C++ compile is two minutes during which nothing at all happens on screen,
+// and a page that shows nothing is indistinguishable from a page that has died.
+// The spinner says something is running; the seconds say how long, which is what
+// tells a student whether to keep waiting.
+let ticking = null;
 
 function setBusy(on) {
     busy = on;
     $('run').disabled = on;
     $('run').textContent = on ? '実行中…' : 'ビルドして実行';
+    $('stop').hidden = !on;
+    $('spin').hidden = !on;
+
+    clearInterval(ticking);
+    if (on) {
+        const started = Date.now();
+        const tick = () => {
+            const s = (Date.now() - started) / 1000;
+            $('elapsed').textContent = s < 60
+                ? `${s.toFixed(0)} 秒`
+                : `${Math.floor(s / 60)} 分 ${(s % 60).toFixed(0).padStart(2, '0')} 秒`;
+        };
+        tick();
+        ticking = setInterval(tick, 1000);
+    } else {
+        $('elapsed').textContent = '';
+    }
+}
+
+// Stopping means killing the worker.
+//
+// There is no gentler way here.  emu_run is one synchronous call into
+// WebAssembly, so a message asking it to stop would not be read until it had
+// already finished; a shared flag would need SharedArrayBuffer, which needs
+// COOP/COEP headers, which GitHub Pages does not send.  So: terminate.
+//
+// The cost is real and is stated rather than hidden - the next run stages the
+// 105 MB toolchain again, which is ten to twenty seconds.  An infinite loop that
+// cannot be stopped is worse.
+function stopEverything() {
+    if (!worker) return;
+    worker.terminate();
+    worker = null;
+    say('\n— 中断しました。次の実行はツールチェーンの用意からやり直します\n', true);
+    setBusy(false);
+    $('statustext').textContent = '';
+    $('bar').hidden = true;
 }
 
 function say(text, isError) {
@@ -70,6 +131,12 @@ function say(text, isError) {
     if (isError) {
         const span = document.createElement('span');
         span.className = 'err';
+        span.textContent = text;
+        el.appendChild(span);
+    } else if (text.startsWith('$ ')) {
+        // The command being run, marked out from what it prints.
+        const span = document.createElement('span');
+        span.className = 'cmd';
         span.textContent = text;
         el.appendChild(span);
     } else {
@@ -496,6 +563,10 @@ $('run').onclick = () => {
     ensureWorker().postMessage({
         type: 'run',
         files: project.files,
+        // Data the project needs but does not carry - MNIST's twelve megabytes.
+        // The worker keeps them; the project does not, so they never reach
+        // localStorage and never appear in a download.
+        data: (TEMPLATES[project.template] || {}).data || null,
         opts: { flags: $('opt').value.split(/\s+/) },
     });
 };
@@ -512,6 +583,7 @@ function showPane(which) {
     }
 }
 
+$('stop').onclick = stopEverything;
 $('csv').onchange = refreshColumns;
 $('cx').onchange = writeCode;
 $('ctype').onchange = writeCode;
@@ -527,4 +599,4 @@ renderProjects();
 
 // The toolchain is 37 MB and the student is about to want it, so start now
 // rather than when they press the button.
-ensureWorker().postMessage({ type: 'prepare' });
+prepareWorker();

@@ -35,19 +35,19 @@ Asked for, in the user's words:
 and C++ with `<vector> <map> <memory> <sstream> <algorithm> <cmath>`, at -O0 and
 -O2, compiles and runs. `sh tools/wslcheck.sh` is that check.
 
-**Not yet done, in the order it matters:**
+**The page works.** The toolchain is in `guest/`, the module is in `web/`, and
+someone has compiled and run C in a browser. What is left:
 
-1. **The WebAssembly build has never been run.** `web/build.sh` exists;
-   `web/x86emu.js` and `.wasm` are not committed yet. Nothing in `web/` has been
-   loaded in a browser.
-2. **The toolchain is not in the repository yet.** `tools/wslpack.sh` puts it
-   there as `guest/tree/` (the files, so a library can be added later) and
-   `guest/tree.tar.gz` (what the page fetches).
-3. **MNIST has no data.** `web/mnist.js` names four `.gz` files under `data/`
-   that nobody has put there, and the sizes in it (4000 training images, 3
-   epochs) are a guess at what a minute of emulated arithmetic buys. Measure it.
-4. The page has never been opened. Expect the first hour there to be ordinary
-   web bugs.
+1. **C++ takes one to two minutes.** See below - this is the whole job.
+2. **MNIST has never finished a run.** The data is in `web/data/` and the worker
+   fetches it, but the sizes in `web/mnist.js` (4000 images, 3 epochs) were
+   chosen before anything was timed. `tools/wslmnist.sh` runs it; set them to
+   the largest that finishes in about a minute.
+3. **Stopping a run kills the worker**, because there is no other way: `emu_run`
+   is one synchronous call, and a shared stop flag would need
+   `SharedArrayBuffer`, which needs COOP/COEP headers, which GitHub Pages does
+   not send. The page keeps the downloaded toolchain so the restart is a
+   re-unpack rather than a re-download.
 
 ## How it is put together
 
@@ -81,6 +81,44 @@ are naming a real file.
 
 This is in `x86_emu_cpp` upstream as well, or should be — check before copying
 the emulator again.
+
+## Things the browser found that node could not
+
+Each of these worked under node and failed in a browser, which is worth knowing
+before trusting the next node run.
+
+- **A program's `fopen("out.csv", "w")` went to `/`.** Nothing had set the
+  emscripten filesystem's idea of "here", and passing `/work` to `emu_run` only
+  put PWD in the guest's *environment* - which a shell reads and the C library
+  does not. The page collects what appeared in `/work`, so the graph tab had
+  nothing to plot. `FS.chdir` before staging; `web/test_cwd.mjs` shows it.
+- **C++ aborted with `Aborted(undefined)`.** The build was missing
+  `-sDISABLE_EXCEPTION_CATCHING=0`, and emscripten's default turns every throw
+  into `abort()`. The emulator's own diagnostics are exceptions, so the real
+  message was being destroyed on its way out. Not memory: the whole C++ compile
+  peaks at 105 MB, which was measured before believing otherwise.
+- **The project dropdown could not be used.** Saving runs on a timer after every
+  keystroke and rebuilt the `<select>`, so it was replaced underneath whoever
+  had just opened it.
+- **Output arrived in bursts.** The emulator answered `ioctl` with "not a
+  terminal", which is true of a pipe - and musl then buffers stdout in full, so
+  a program printing its progress produced nothing until it finished or filled
+  four kilobytes. The standard streams answer as terminals now, in
+  `x86_emu_cpp/src/syscalls.cpp`.
+
+## Carrying a filesystem in git
+
+Three things, each of which would have broken the page somewhere far from the
+cause:
+
+- **Symlinks become copies** (`tools/wslpack.sh`). git on Windows cannot index
+  one, and `untar.js` cannot create one in MEMFS - the browser would have had
+  the name and no file.
+- **A link whose target was removed goes with it.** `wslpayload.sh` drops the
+  drivers this does not need, and `x86_64-alpine-linux-musl-cc` pointed at one.
+- **`.gitattributes` marks `guest/tree/**` as not-text.** Otherwise git rewrites
+  the line endings of every C++ header on checkout, and a compile then fails for
+  reasons that have nothing to do with the program being compiled.
 
 ## What has already been tried and was wrong
 

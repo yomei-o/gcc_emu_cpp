@@ -14,6 +14,8 @@ const WORK = '/work';
 let Module = null;
 let run = null;
 let ready = false;
+// The gzipped toolchain, if the page had one from a previous worker.
+let carried = null;
 
 const post = (msg, transfer) => self.postMessage(msg, transfer || []);
 const status = (text) => post({ type: 'status', text });
@@ -70,11 +72,23 @@ async function start() {
         Module.ccall('emu_set_sysroot', null, ['string'], [SYSROOT]);
     }
 
-    status('ツールチェーンを取得しています (57 MB)');
-    // Beside the tree it was made from, not in web/: the payload is not part of
-    // the page, and tools/wslpack.sh puts both there together.
-    const gz = await fetchBytes('../guest/tree.tar.gz', (got, total) =>
-        post({ type: 'progress', done: got, total: total || 58 * 1024 * 1024 }));
+    let gz = carried;
+    if (gz) {
+        // Handed over by the page, which kept it from the worker before this
+        // one.  Stopping a run kills the worker, and re-downloading sixty
+        // megabytes to punish someone for stopping an infinite loop is not a
+        // design.
+        status('ツールチェーンを用意しています');
+    } else {
+        status('ツールチェーンを取得しています (63 MB)');
+        // Beside the tree it was made from, not in web/: the payload is not part
+        // of the page, and tools/wslpack.sh puts both there together.
+        gz = await fetchBytes('../guest/tree.tar.gz', (got, total) =>
+            post({ type: 'progress', done: got, total: total || 63 * 1024 * 1024 }));
+        // A copy for the page to keep.  postMessage would neuter the original if
+        // it were transferred, and this one is about to be gunzipped.
+        post({ type: 'carry', bytes: gz.slice().buffer });
+    }
     status('展開しています (105 MB)');
     // Straight into the sysroot: every path in the archive is already the path
     // the guest will use.
@@ -112,6 +126,25 @@ function stageProject(files) {
     }
 }
 
+// Data a project needs but does not carry: MNIST's twelve megabytes, which have
+// no business in localStorage or in a project's own file list.
+//
+// Kept once and re-staged from here, so switching away and back does not fetch
+// them again.  They are gzipped as distributed and unpacked on the way in.
+const datasets = new Map();
+
+async function stageData(list) {
+    for (const [name, url] of list || []) {
+        if (!datasets.has(url)) {
+            status(`データを取得しています: ${name}`);
+            const gz = await fetchBytes(url, (got, total) =>
+                post({ type: 'progress', done: got, total: total || 12 * 1024 * 1024 }));
+            datasets.set(url, await gunzip(gz));
+        }
+        writeInto(WORK + '/' + name, datasets.get(url));
+    }
+}
+
 function execute(argv, cwd) {
     const blob = new TextEncoder().encode(argv.join('\0') + '\0');
     const started = Date.now();
@@ -140,15 +173,30 @@ function build(files, opts) {
     // -lm is free to name even when unused, and forgetting it is the most
     // common first error a student meets.
     argv.push('-lm');
+    echo(argv);
     return { result: execute(argv), sources, compiler: argv[0] };
+}
+
+// The command, the way it would be typed.
+//
+// A student should be able to see what the button does and, eventually, type it
+// themselves somewhere else.  Paths are shown relative to the project, because
+// /work is this page's arrangement and not something to learn.
+function echo(argv) {
+    const said = argv.map((a) => (a.startsWith(WORK + '/') ? a.slice(WORK.length + 1) : a))
+                     .map((a) => (a.startsWith('/usr/bin/') ? a.slice('/usr/bin/'.length) : a));
+    post({ type: 'out', fd: 1, text: '$ ' + said.join(' ') + '
+' });
 }
 
 self.onmessage = async (e) => {
     const m = e.data;
     try {
         if (m.type === 'build' || m.type === 'run') {
+            if (m.carried && !carried) carried = new Uint8Array(m.carried);
             await start();
             stageProject(m.files);
+            await stageData(m.data);
             if (m.type === 'build' || m.rebuild !== false) {
                 // C++ is minutes rather than seconds, and a student who does not
                 // know that assumes it has hung.  Saying so costs nothing and is
@@ -164,6 +212,7 @@ self.onmessage = async (e) => {
             }
             if (m.type === 'run') {
                 status('実行しています');
+                echo(['./a.out', ...(m.args || [])]);
                 const result = execute([WORK + '/a.out', ...(m.args || [])]);
                 post({ type: 'ran', ...result });
                 // Whatever the program wrote, so the page can offer it back -
@@ -181,6 +230,7 @@ self.onmessage = async (e) => {
             }
             post({ type: 'done' });
         } else if (m.type === 'prepare') {
+            if (m.carried) carried = new Uint8Array(m.carried);
             await start();
             post({ type: 'done' });
         }

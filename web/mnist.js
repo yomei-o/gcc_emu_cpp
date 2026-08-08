@@ -1,21 +1,23 @@
 // MNIST, in C++ and nothing else.
 //
-// The size of it is decided by how fast the emulator is, which is about a
-// hundred times slower than the machine underneath.  A full training run - sixty
-// thousand images, several epochs - is minutes of native arithmetic and would be
-// most of an hour here, which is not a thing a student will sit through.
+// How big it is was decided by arithmetic rather than by taste, after the first
+// attempt - 4000 images, three epochs - was still running an hour later.  The
+// count is knowable in advance: a forward pass is 784x16 + 16x10 multiply-adds,
+// training is three of those per image, and evaluating the test set is as
+// expensive as the training it interrupts.  That came to 1.5 billion operations,
+// or twenty to forty minutes.
 //
-// So: a small network on a subset, trained in about a minute, reaching something
-// like 90%.  That is enough to watch the loss fall and the accuracy climb, which
-// is the part worth watching.  The full set is one constant away for anyone who
-// wants to leave it running.
+// So: 600 images, two epochs, a test set of 200, measured every hundred steps.
+// About a minute, and about 80%.  Every one of those is a constant at the top of
+// main.cpp with the cost of raising it written beside it - which is a better
+// lesson than a number that was chosen for them.
 //
 // The data is a header-only decoder over the original IDX files, gzipped - no
 // library, no tar, and the format is simple enough to read in the source.
 
 export const MNIST = {
     title: 'MNIST を C++ だけで',
-    note: '手書き数字を、ライブラリなしで学習して当てる。1分ほどで 90% くらいまで来ます。',
+    note: '手書き数字を、ライブラリなしで学習して当てる。1分ほどで 80% くらいまで来ます。数を増やせばもっと上がります。',
     csv: 'training.csv',
     // Fetched rather than carried in the page: 11 MB of it.
     data: [
@@ -180,11 +182,19 @@ struct Net {
 #include "idx.hpp"
 #include "net.hpp"
 
-static const int TRAIN  = 4000;   // 60000 まで増やせます
-static const int TEST   = 1000;   // 10000 まで
-static const int HIDDEN = 32;
-static const int EPOCHS = 3;
-static const float LR   = 0.05f;
+/* エミュレータの上では、掛け算1回が実機の百倍くらいかかります。
+ * この設定でおよそ1分。増やせばそのぶん良くなりますが、そのぶん待ちます:
+ *
+ *   TRAIN 600, EPOCHS 2   →  約 1 分   （既定）
+ *   TRAIN 4000, EPOCHS 3  →  10〜30 分
+ *   TRAIN 60000, EPOCHS 5 →  一晩
+ *
+ * 数を変えて、正解率がどう変わるか見てみてください。 */
+static const int TRAIN  = 600;    /* 60000 まで増やせます */
+static const int TEST   = 200;    /* 10000 まで */
+static const int HIDDEN = 16;
+static const int EPOCHS = 2;
+static const float LR   = 0.1f;   /* 少ないデータなので、少し大きめに */
 
 int main() {
     std::printf("読み込んでいます...\\n");
@@ -234,7 +244,7 @@ int main() {
             net.train_one(x, label, LR, h, p, dh);
 
             // ときどき測って書く。測るのも計算なので、頻繁にはやらない
-            if (++step % 500 == 0) {
+            if (++step % 100 == 0) {
                 float acc = evaluate();
                 std::fprintf(csv, "%d,%.5f,%.2f\\n", step, loss / 500.0, acc);
                 std::printf("%-6d %-10.4f %.1f%%\\n", step, loss / 500.0, acc);
