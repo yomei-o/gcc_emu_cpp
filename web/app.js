@@ -169,6 +169,8 @@ function afterOpen() {
     current = Object.keys(project.files).find((f) => /\.(c|cc|cpp|cxx)$/.test(f)) ||
               Object.keys(project.files)[0] || null;
     $('console').textContent = '';
+    outputSaved = null;
+    $('viewing').hidden = true;
     renderFiles();
     renderOutputs();
     showFile(current);
@@ -289,12 +291,38 @@ function renderOutputs() {
             if (/[\x00-\x08\x0e-\x1f]/.test(text.slice(0, 400))) {
                 say(`${name}: ${bytes.length} バイトのバイナリです\n`);
             } else {
-                $('console').textContent = text;
+                showFileInConsole(name, text);
             }
             showPane('out');
         };
         box.appendChild(row);
     }
+}
+
+// Showing a produced file where the output was, and being able to go back.
+//
+// It used to overwrite the console, and the run's output - the compiler's
+// diagnostics, whatever the program printed - was gone until it was run again.
+// The nodes are kept rather than the text, because errors and command lines are
+// coloured spans and re-rendering them from a string would lose that.
+let outputSaved = null;
+
+function showFileInConsole(name, text) {
+    const el = $('console');
+    if (!outputSaved) outputSaved = [...el.childNodes];
+    el.textContent = text;
+    $('viewing').hidden = false;
+    $('viewing-name').textContent = name;
+}
+
+function backToOutput() {
+    const el = $('console');
+    if (outputSaved) {
+        el.textContent = '';
+        for (const node of outputSaved) el.appendChild(node);
+        outputSaved = null;
+    }
+    $('viewing').hidden = true;
 }
 
 function showFile(name) {
@@ -558,6 +586,8 @@ $('run').onclick = () => {
     if (busy) return;
     stash();
     setBusy(true);
+    outputSaved = null;
+    $('viewing').hidden = true;
     $('console').textContent = '';
     showPane('out');
     ensureWorker().postMessage({
@@ -584,6 +614,7 @@ function showPane(which) {
 }
 
 $('stop').onclick = stopEverything;
+$('back').onclick = backToOutput;
 $('csv').onchange = refreshColumns;
 $('cx').onchange = writeCode;
 $('ctype').onchange = writeCode;

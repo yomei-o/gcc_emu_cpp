@@ -54,6 +54,8 @@
   #console { white-space: pre-wrap; font: 12.5px/1.5 ui-monospace, monospace; margin: 0; }
   #console .err { color: #d24; }
   #console .cmd { color: var(--accent); font-weight: 600; }
+  #viewing { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+  #viewing button { padding: .2rem .6rem; font-size: .85rem; }
   .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; }
   .note { color: var(--faint); font-size: .85rem; }
   #code { width: 100%; min-height: 11rem; font: 12px/1.5 ui-monospace, monospace;
@@ -121,7 +123,13 @@
       <button data-pane="out" class="on">出力</button>
       <button data-pane="chart">グラフ</button>
     </div>
-    <div class="pane on" id="pane-out"><pre id="console"></pre></div>
+    <div class="pane on" id="pane-out">
+      <div id="viewing" hidden>
+        <button id="back">← 出力に戻る</button>
+        <span class="note" id="viewing-name"></span>
+      </div>
+      <pre id="console"></pre>
+    </div>
     <div class="pane" id="pane-chart">
       <div class="row">
         <select id="csv"></select>
