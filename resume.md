@@ -36,7 +36,17 @@ and C++ with `<vector> <map> <memory> <sstream> <algorithm> <cmath>`, at -O0 and
 -O2, compiles and runs. `sh tools/wslcheck.sh` is that check.
 
 **The page works.** The toolchain is in `guest/`, the module is in `web/`, and
-someone has compiled and run C in a browser. What is left:
+someone has compiled and run C in a browser.
+
+**Uncommitted when this was written:** `guest/` now holds the gcc 6.4 tree
+(45 MB packed, down from 63) and it passes `tools/wslcheck.sh`, but the seven
+example projects have not been run against it and the WebAssembly module has not
+been rebuilt since the emulator got faster. Do both before pushing:
+
+    sh tools/wslprojects.sh                    # the examples, on a quiet machine
+    EMCC=... sh web/build.sh && sh tools/wslnode.sh
+
+What is left after that:
 
 1. **C++ takes one to two minutes.** See below - this is the whole job.
 2. **MNIST has never finished a run.** The data is in `web/data/` and the worker
@@ -154,7 +164,52 @@ The 6.7 MB figure is a temptation and a trap: it is what *those* compiles opened
 A student who includes `<thread>` opens a different set, and headers compress to
 nothing, so they all go in.
 
-## Next, and it is the whole job: a decoded-instruction cache
+## Where the speed work got to (2026-08-08 evening)
+
+Two changes to `x86_emu_cpp/src/cpu.cpp`, committed as `b1f54c9`, both of which
+remove work from before every instruction rather than changing how instructions
+run. The test suite stayed at 10 passed, 0 failed throughout, which is the point
+of doing it in this order.
+
+- **The hook check.** `step()` called `on_hook_call` - a `std::function` - for
+  every instruction, and the first thing that callback did was compare the
+  address against two numbers and return false. The range is on the `Cpu` now
+  and the callback is reached only when the address is inside it. `add_hook`
+  keeps it current, because hooks are registered while the guest runs.
+- **Three diagnostics that are always off.** Profiling, the census and the
+  instruction history each cost a load and a branch to establish they were
+  disabled. One `watching_` flag now covers all three.
+
+**About 2.6x.** Seven runs of the same binary gave 323 to 396 ms against a
+baseline of 838; the best is 2.59x. The commit message says 2.74x, which was one
+run of three and the top of the spread - the right order of magnitude quoted
+with more precision than it had. `RUNS=7 sh tools/bench.sh` is the honest form.
+
+### What was tried and made it slower
+
+Removing a *real* redundancy: every instruction without a prefix read its opcode
+byte twice, once for the prefix loop to discover it was not a prefix and once to
+use it. Keeping the byte instead cost 33% - the extra branch was worse than the
+memory read it saved.
+
+That result is the useful one. **An optimisation that adds a branch is likely to
+lose**, and the two that worked did not add any: the hook check replaced an
+indirect call with a comparison that was already being made, and the diagnostics
+change turned three branches into one. Judge the next idea by that first.
+
+### Not attempted, on purpose
+
+- **A separate code-page cache for instruction fetch.** It would be a second
+  cache alongside `Memory`'s TLB, and both would have to be invalidated when a
+  page is remapped. Forget one and the guest executes stale instructions, which
+  looks like data corruption a long way from the cause.
+- **The decoded-instruction cache below.** Same hazard, larger. And now that a
+  removed memory read has been seen to lose to an added branch, its benefit is a
+  hypothesis rather than an expectation: it removes decoding but adds a lookup
+  and a branch per instruction. Measure a prototype before committing to the
+  rewrite.
+
+## The larger prize, still unclaimed: a decoded-instruction cache
 
 **C is fine and C++ is not.** In WebAssembly, under node:
 
