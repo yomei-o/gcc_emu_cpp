@@ -1,5 +1,5 @@
-/* Script for -r */
-/* Copyright (C) 2014-2023 Free Software Foundation, Inc.
+/* Script for ld -r: link without relocation */
+/* Copyright (C) 2014-2018 Free Software Foundation, Inc.
    Copying and distribution of this script, with or without modification,
    are permitted in any medium without royalty provided the copyright
    notice and this notice are preserved.  */
@@ -10,6 +10,7 @@ SECTIONS
   .text  :
   {
     *(.text)
+    /* ??? Why is .gcc_exc here?  */
   }
   /* The Cygwin32 library uses a section to avoid copying certain data
      on fork.  This used to be named ".data".  The linker used
@@ -24,7 +25,6 @@ SECTIONS
   .rdata  :
   {
     *(.rdata)
-    . = ALIGN(4);
   }
   .eh_frame  :
   {
@@ -48,6 +48,7 @@ SECTIONS
     *(.debug$S)
     *(.debug$T)
     *(.debug$F)
+    *(.drectve)
   }
   .idata  :
   {
@@ -106,6 +107,14 @@ SECTIONS
   .zdebug_pubnames   :
   {
     *(.zdebug_pubnames)
+  }
+  .debug_pubtypes   :
+  {
+    *(.debug_pubtypes)
+  }
+  .zdebug_pubtypes   :
+  {
+    *(.zdebug_pubtypes)
   }
   /* DWARF 2.  */
   .debug_info   :
@@ -197,15 +206,15 @@ SECTIONS
   {
     *(.zdebug_varnames)
   }
+  .debug_macro   :
+  {
+    *(.debug_macro)
+  }
+  .zdebug_macro   :
+  {
+    *(.zdebug_macro)
+  }
   /* DWARF 3.  */
-  .debug_pubtypes   :
-  {
-    *(.debug_pubtypes)
-  }
-  .zdebug_pubtypes   :
-  {
-    *(.zdebug_pubtypes)
-  }
   .debug_ranges   :
   {
     *(.debug_ranges)
@@ -222,67 +231,6 @@ SECTIONS
   .zdebug_types   :
   {
     *(.zdebug_types)
-  }
-  /* DWARF 5.  */
-  .debug_addr   :
-  {
-    *(.debug_addr)
-  }
-  .zdebug_addr   :
-  {
-    *(.zdebug_addr)
-  }
-  .debug_line_str   :
-  {
-    *(.debug_line_str)
-  }
-  .zdebug_line_str   :
-  {
-    *(.zdebug_line_str)
-  }
-  .debug_loclists   :
-  {
-    *(.debug_loclists)
-  }
-  .zdebug_loclists   :
-  {
-    *(.zdebug_loclists)
-  }
-  .debug_macro   :
-  {
-    *(.debug_macro)
-  }
-  .zdebug_macro   :
-  {
-    *(.zdebug_macro)
-  }
-  .debug_names   :
-  {
-    *(.debug_names)
-  }
-  .zdebug_names   :
-  {
-    *(.zdebug_names)
-  }
-  .debug_rnglists   :
-  {
-    *(.debug_rnglists)
-  }
-  .zdebug_rnglists   :
-  {
-    *(.zdebug_rnglists)
-  }
-  .debug_str_offsets   :
-  {
-    *(.debug_str_offsets)
-  }
-  .zdebug_str_offsets   :
-  {
-    *(.zdebug_str_offsets)
-  }
-  .debug_sup   :
-  {
-    *(.debug_sup)
   }
   /* For Go and Rust.  */
   .debug_gdb_scripts   :

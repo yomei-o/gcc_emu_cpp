@@ -7,9 +7,7 @@ extern "C" {
 
 #include <features.h>
 
-#if __cplusplus >= 201103L
-#define NULL nullptr
-#elif defined(__cplusplus)
+#ifdef __cplusplus
 #define NULL 0L
 #else
 #define NULL ((void*)0)
@@ -73,7 +71,6 @@ char *strsignal(int);
 char *strerror_l (int, locale_t);
 int strcoll_l (const char *, const char *, locale_t);
 size_t strxfrm_l (char *__restrict, const char *__restrict, size_t, locale_t);
-void *memmem(const void *, size_t, const void *, size_t);
 #endif
 
 #if defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) \
@@ -85,7 +82,6 @@ void *memccpy (void *__restrict, const void *__restrict, int, size_t);
 char *strsep(char **, const char *);
 size_t strlcat (char *, const char *, size_t);
 size_t strlcpy (char *, const char *, size_t);
-void explicit_bzero (void *, size_t);
 #endif
 
 #ifdef _GNU_SOURCE
@@ -93,6 +89,7 @@ void explicit_bzero (void *, size_t);
 int strverscmp (const char *, const char *);
 char *strchrnul(const char *, int);
 char *strcasestr(const char *, const char *);
+void *memmem(const void *, size_t, const void *, size_t);
 void *memrchr(const void *, int, size_t);
 void *mempcpy(void *, const void *, size_t);
 #ifndef __cplusplus

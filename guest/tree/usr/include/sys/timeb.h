@@ -4,8 +4,6 @@
 extern "C" {
 #endif
 
-#include <features.h>
-
 #define __NEED_time_t
 
 #include <bits/alltypes.h>
@@ -17,10 +15,6 @@ struct timeb {
 };
 
 int ftime(struct timeb *);
-
-#if _REDIR_TIME64
-__REDIR(ftime, __ftime64);
-#endif
 
 #ifdef __cplusplus
 }

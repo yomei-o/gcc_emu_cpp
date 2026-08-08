@@ -11,6 +11,18 @@ EMCC=${EMCC:-emcc}
 command -v "$EMCC" >/dev/null 2>&1 || [ -x "$EMCC" ] ||
     { echo "emcc not found; set EMCC=/path/to/emcc"; exit 1; }
 
+# WebAssembly's own exceptions, not emscripten's JavaScript ones.
+#
+# -sDISABLE_EXCEPTION_CATCHING=0 was added to find out why a C++ compile aborted
+# with nothing readable in it.  It worked - and it wraps every call that can
+# throw in JavaScript, and the emulator throws on faults.  The cost was 3.5x: a C
+# compile went from 6.6 s to 23 s, and it went unnoticed for an afternoon because
+# two genuine speedups landed in the same window and the browser numbers were
+# read as "still slow" rather than "slower than this morning".
+#
+# -fwasm-exceptions is the native proposal - every browser since 2023 - and costs
+# nothing when nothing throws.
+#
 # The link has to be a C++ one.  emcc decides that from its inputs and decides
 # wrong here, and every `throw` in the emulator then comes back as an undefined
 # symbol.  The driver is em++, not emcc++ - `${EMCC}++` looks right and names a
@@ -37,7 +49,7 @@ $EMXX -std=c++17 -O3 -Ix86_emu_cpp/src \
     -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","FS"]' \
     -sENVIRONMENT=web,worker,node \
     -sEXIT_RUNTIME=0 \
-    -sASSERTIONS=1 \
-    -sDISABLE_EXCEPTION_CATCHING=0
+    -sASSERTIONS=0 \
+    -fwasm-exceptions
 
 ls -l web/x86emu.js web/x86emu.wasm

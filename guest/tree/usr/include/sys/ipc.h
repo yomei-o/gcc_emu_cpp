@@ -22,7 +22,6 @@ extern "C" {
 #endif
 
 #include <bits/ipc.h>
-#include <bits/ipcstat.h>
 
 #define IPC_CREAT  01000
 #define IPC_EXCL   02000
@@ -30,6 +29,7 @@ extern "C" {
 
 #define IPC_RMID 0
 #define IPC_SET  1
+#define IPC_STAT 2
 #define IPC_INFO 3
 
 #define IPC_PRIVATE ((key_t) 0)

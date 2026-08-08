@@ -3,9 +3,7 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#if __cplusplus < 201103L
+#else
 typedef unsigned short char16_t;
 typedef unsigned char32_t;
 #endif
