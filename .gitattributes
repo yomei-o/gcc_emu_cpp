@@ -5,3 +5,15 @@
 guest/tree/** -text
 *.tar.gz binary
 *.wasm binary
+*.gz binary
+
+# A shell script with CRLF line endings does not run: `set -e\r` is reported as
+# `set: Illegal option -`, which names neither the file nor the reason.  These
+# stay LF wherever they are checked out.
+*.sh text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.c text eol=lf
+*.h text eol=lf

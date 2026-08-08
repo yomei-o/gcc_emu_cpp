@@ -185,8 +185,7 @@ function build(files, opts) {
 function echo(argv) {
     const said = argv.map((a) => (a.startsWith(WORK + '/') ? a.slice(WORK.length + 1) : a))
                      .map((a) => (a.startsWith('/usr/bin/') ? a.slice('/usr/bin/'.length) : a));
-    post({ type: 'out', fd: 1, text: '$ ' + said.join(' ') + '
-' });
+    post({ type: 'out', fd: 1, text: '$ ' + said.join(' ') + '\n' });
 }
 
 self.onmessage = async (e) => {
