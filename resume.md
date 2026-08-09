@@ -285,6 +285,98 @@ A precompiled header was tried and is not the answer:
 A third of the time, for a third again on the payload, and fifty seconds is
 still too long. It is on the record so nobody spends a day rediscovering it.
 
+**Re-measured, and it no longer runs at all.** With the emulator as it is now:
+
+    72.8 s   no PCH
+    131.5 s  to build the .gch, which is 28 MB
+      -      using it: cc1plus dies, `unmapped memory read at 0x16ADDDC8`
+
+So between those two measurements the emulator got faster and the PCH path
+broke; which change did it has not been established. The first suspect is
+`Sys::Mmap` in `syscalls.cpp`: without `MAP_FIXED` it ignores the requested
+address entirely and hands back a fresh region, and GCC asks for the address its
+PCH was built at *without* MAP_FIXED, then trusts the pointers baked into the
+file. `X86EMU_MMAP_TRACE=1` prints what was asked for and what was given, and
+`tools/wslpchnative.sh` runs the whole sequence natively, which is where to pick
+this up. Note also that the 38 MB objection above compares an uncompressed file
+against a download that is gzipped 3.5x - the payload cost was never actually
+measured.
+
+And a measurement that says where any of this would have to pay off. The C++
+compile, by stage (`tools/wslstages.sh`, native emulator):
+
+    96.16 s  g++, everything
+    93.19 s    cc1plus alone (-S)
+    61.33 s      of which parsing (-fsyntax-only)
+     0.67 s    as
+     ~3.9 s    collect2 and ld
+     4.05 s  a whole four-process gcc run on an empty .c
+
+cc1plus is **97 %** of it. Anything that reorganises the *pipeline* - fewer
+processes, no .s file, a different assembler - is playing for three per cent.
+
+### What cc1plus executes, and what the emulator spends on it
+
+Two different questions, two tools, and they disagree about what matters.
+
+`tools/wslopcount.sh` counts the guest's opcodes. Parsing is 1.5 G instructions:
+
+    89 MOV r/m,r 14.0 %   8B MOV r,r/m 9.7 %   83 ALU imm8 7.7 %
+    74 JE 6.1 %   75 JNE 3.9 %   85 TEST 3.6 %   C3 RET 3.0 %   E8 CALL 2.9 %
+    39 CMP 2.6 %   31 XOR 2.5 %   8D LEA 2.4 %   55/5D push/pop rbp 1.9 % each
+
+Nothing like voicevox's parse, which was MOV/XOR/AND/shift and no branches worth
+naming. This is **16 % conditional branches and 6 % call/ret** - a compiler
+walking trees and chasing pointers.
+
+`tools/wslprofile.sh` says where the emulator's own time goes running that:
+
+    step()          53.6 %
+    decode_modrm    15.1 %   (929 M calls - 62 % of instructions)
+    run_slice        6.8 %
+    read_sized       4.0 %
+    set_szp          2.4 %
+    rm_read          2.3 %
+    cond             2.0 %
+
+**Flags are not the lever.** 20 % of the guest's instructions set them, which
+looked like a target - and `set_szp` + `set_flags_sub` + `set_flags_logic` +
+`set_flags_add` together are **4.8 %** of host time. Batching the six
+read-modify-writes of `rflags` into one would win a fraction of that. Lazy flags
+are worse than they look for the same reason: flag-setting instructions are
+20 % and the conditional branches that read them are 16 %, so nearly every
+computed flag is actually consumed - deferring the work does not remove it and
+adds a test to every read.
+
+**step() and decode_modrm are 69 %.** The one bounded idea in that was to split
+mod == 3 - a register operand, no SIB, no displacement - into an inline fast
+path, so the shortest route through `decode_modrm` stopped going through a call
+to a large out-of-line function.
+
+**Tried, and it is slower.** `tools/wslab.sh`, three interleaved rounds of
+`g++ -fsyntax-only`:
+
+    before  56.90  55.74  55.42     (56.02 avg)
+    after   76.15  59.12  56.31     (63.86 avg)
+
+The 76 is an outlier, but every paired round has `after` above `before`. The
+explanation that fits: `step()` is already 53 % of host time and the largest
+function there is, `decode_modrm` is called by 62 % of instructions, and
+inlining the second into the first trades one call for a great deal more code in
+the hottest loop. This repository already records that *an optimisation which
+adds a branch tends to lose here*; this is the same lesson arriving through code
+size instead.
+
+So `-pg`'s 15 % for `decode_modrm` was mostly the instrumentation: with
+inlining on, the call is not what costs. Reverted.
+
+Which leaves the honest position: nothing cheap is left in the interpreter for
+this workload. Four things have now been measured and three of them were
+nothing - the prefix switch, the census hoist, and this - while the fetch cursor
+was 3 %. The remaining idea of any size is still the one in
+`x86_emu_cpp/resume.md`: restructure dispatch, with a differential harness built
+first so it can be done safely. Days, not hours.
+
 **So: give the CPU a decoded-instruction cache.** It is the first thing
 `x86_emu_cpp/resume.md` lists under performance, it helps everything rather than
 one language, and cc1plus parsing templates is exactly the shape it is for - a

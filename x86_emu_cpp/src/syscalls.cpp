@@ -369,6 +369,18 @@ int64_t do_syscall(Emulator& e, Sys sys, const uint64_t a[6]) {
                 if (!p.empty()) region = "mmap " + p;
             }
 
+            // X86EMU_MMAP_TRACE=1: what was asked for and what was given.
+            //
+            // A guest that asks for a particular address and is quietly given a
+            // different one is the hardest kind of wrong to see from outside:
+            // the syscall succeeds, and the failure arrives later as a read of
+            // an address nothing ever mapped.  GCC's precompiled headers ask
+            // exactly that way.
+            static const bool trace_mmap = [] {
+                const char* v = std::getenv("X86EMU_MMAP_TRACE");
+                return v && *v && *v != '0';
+            }();
+
             uint64_t target;
             if (flags & kMapFixed) {           // ld.so reserves a span, then drops
                 target = addr;                 // each segment at a fixed sub-address
@@ -384,6 +396,15 @@ int64_t do_syscall(Emulator& e, Sys sys, const uint64_t a[6]) {
             } else {
                 target = e.alloc_pages(len, 0x1000, region);   // a fresh region
                 if (!target) return -12;       // ENOMEM
+            }
+            if (trace_mmap) {
+                std::fprintf(stderr,
+                             "[mmap] want %012llX len %llX flags %X fd %d -> %012llX%s\n",
+                             static_cast<unsigned long long>(addr),
+                             static_cast<unsigned long long>(len),
+                             static_cast<unsigned>(flags), fd,
+                             static_cast<unsigned long long>(target),
+                             (addr && target != addr) ? "   MOVED" : "");
             }
 
             if (!(flags & kMapAnon) && fd >= 0 && e.files.valid(fd)) {
