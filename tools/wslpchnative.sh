@@ -52,14 +52,29 @@ if [ ! -f "$ROOT/pch/std.hpp.gch" ]; then
     echo "  $(took "$a" "$b") s   $(du -h "$ROOT/pch/std.hpp.gch" | cut -f1)"
 fi
 
-echo "== without it"
-a=$(secs)
-./x86emu -r "$ROOT" /usr/bin/g++ -O2 /work/hello.cpp -o /work/a.out
-b=$(secs)
-echo "  $(took "$a" "$b") s"
+# cc1plus names its temporary files from the pid, the emulator hands out the
+# same pids every run, and a previous run's leavings make the next one fail with
+# `Cannot create temporary file in /tmp/: File exists`.  That failure takes half
+# a second and looks exactly like a very fast compile.
+rm -rf "$ROOT/tmp"; mkdir -p "$ROOT/tmp"
 
+# And each timing is only worth reading if something ran: a compile that failed
+# is faster than one that worked, every time.
+run() {  # run <label> <output> <flags...>
+    label=$1; out=$2; shift 2
+    rm -f "$ROOT$out"
+    a=$(secs)
+    ./x86emu -r "$ROOT" /usr/bin/g++ "$@" -o "$out" || { echo "  $label: FAILED"; return 1; }
+    b=$(secs)
+    [ -f "$ROOT$out" ] || { echo "  $label: no output produced"; return 1; }
+    got=$(cd "$ROOT" && "$OLDPWD/x86emu" -r "$ROOT" "$out" 2>&1) ||
+        { echo "  $label: the program it built does not run"; return 1; }
+    echo "  $(took "$a" "$b") s   ($label, ran and printed: $got)"
+}
+
+echo "== without it"
+run "no pch" /work/a.out -O2 /work/hello.cpp
+
+rm -rf "$ROOT/tmp"; mkdir -p "$ROOT/tmp"
 echo "== with it"
-a=$(secs)
-./x86emu -r "$ROOT" /usr/bin/g++ -O2 -I/pch -include std.hpp /work/hello.cpp -o /work/b.out || echo "  (failed)"
-b=$(secs)
-echo "  $(took "$a" "$b") s"
+run "pch" /work/b.out -O2 -I/pch -include std.hpp /work/hello.cpp

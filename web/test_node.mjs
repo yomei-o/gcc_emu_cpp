@@ -126,6 +126,20 @@ check('g++', ['/usr/bin/g++', '-O2', '-Wall', '/work/hello.cpp', '-o', '/work/b.
 console.error('running');
 check('b.out', ['/work/b.out'], 'C++ 123');
 
+// And again with the precompiled header the toolchain now carries, which is
+// what web/worker.js passes for a -O2 C++ build.  Both times, because the
+// number worth having is the pair: the header is 4.6 MB of everyone's download
+// and it has to earn that here, in WebAssembly, not only under the native
+// emulator where it was first measured.
+//
+// The same program, so the answer must not change - a faster compile that
+// produces something different is not a faster compile.
+console.error('compiling C++ with the precompiled header');
+check('g++ +pch', ['/usr/bin/g++', '-O2', '-Wall', '-I/pch', '-include', 'std.hpp',
+                   '/work/hello.cpp', '-o', '/work/c.out']);
+console.error('running');
+check('c.out', ['/work/c.out'], 'C++ 123');
+
 // Nothing to clean up: the archive goes straight from memory into MEMFS, and
 // MEMFS goes away with the process.
 console.error(failed ? `\n${failed} failed` : '\nthe WebAssembly build compiles and runs both');

@@ -393,6 +393,18 @@ int64_t do_syscall(Emulator& e, Sys sys, const uint64_t a[6]) {
                 uint64_t span = (target - page + len + 0xFFF) & ~0xFFFull;
                 e.mem.unmap(page, span);
                 e.mem.map(target, len, region);
+            } else if (addr && (addr & 0xFFF) == 0 &&
+                       e.mem.range_free(addr, len)) {
+                // An address without MAP_FIXED is a hint, and Linux honours it
+                // when the range is free.  Ignoring it is legal for anything
+                // that checks the return value and fatal for anything that does
+                // not: GCC maps a precompiled header at the address it was
+                // built for, then follows pointers stored inside it, so a
+                // mapping placed elsewhere fails as a read of an address
+                // nothing ever mapped - about seventeen megabytes into the
+                // range it asked for, with no mention of PCH anywhere.
+                target = addr;
+                e.mem.map(target, len, region);
             } else {
                 target = e.alloc_pages(len, 0x1000, region);   // a fresh region
                 if (!target) return -12;       // ENOMEM

@@ -276,31 +276,40 @@ parsing it. Not preprocessing - parsing. `<vector>` and `<algorithm>` alone cost
 71 s, so this is not something about iostream. It is what a C++ standard library
 is.
 
-A precompiled header was tried and is not the answer:
+### The precompiled header, which ships
 
-    142 s   no PCH
-     51 s   with one
-     198 s  to build the .gch, which is 38 MB
+    66.9 s   g++ -O2 -Wall, in WebAssembly, as the page runs it
+    24.3 s   the same with the header the toolchain now carries
 
-A third of the time, for a third again on the payload, and fifty seconds is
-still too long. It is on the record so nobody spends a day rediscovering it.
+Both compile, both run, both print the same thing - which matters more than the
+clock, because a faster build that produces something else is not a faster
+build. `tools/wslmkpch.sh` builds it (100 s, once, here), `tools/wslpack.sh`
+carries it, and `web/worker.js` passes `-I/pch -include std.hpp`.
 
-**Re-measured, and it no longer runs at all.** With the emulator as it is now:
+**Only for -O2.** GCC declines a header whose options do not match, says nothing
+whatever about it, and re-reads the real ones - having first read the 28 MB file
+it is about to reject. At `-O0 -g` that is 72 s against 57 s without: passing it
+where it does not apply is worse than not having it at all.
 
-    72.8 s   no PCH
-    131.5 s  to build the .gch, which is 28 MB
-      -      using it: cc1plus dies, `unmapped memory read at 0x16ADDDC8`
+This was written off twice, and both reasons were wrong.
 
-So between those two measurements the emulator got faster and the PCH path
-broke; which change did it has not been established. The first suspect is
-`Sys::Mmap` in `syscalls.cpp`: without `MAP_FIXED` it ignores the requested
-address entirely and hands back a fresh region, and GCC asks for the address its
-PCH was built at *without* MAP_FIXED, then trusts the pointers baked into the
-file. `X86EMU_MMAP_TRACE=1` prints what was asked for and what was given, and
-`tools/wslpchnative.sh` runs the whole sequence natively, which is where to pick
-this up. Note also that the 38 MB objection above compares an uncompressed file
-against a download that is gzipped 3.5x - the payload cost was never actually
-measured.
+*"A third again on the payload"* compared an uncompressed 28 MB file against a
+download that is gzipped 3.5x. The header adds **4.6 MB** to a 54.3 MB tarball -
+eight per cent, for a compile nearly three times faster.
+
+*"Tried, and not the answer"* was measured before the feature broke and never
+re-measured after. `Sys::Mmap` ignored the address on a mapping without
+MAP_FIXED and handed back a fresh region; GCC maps a .gch at the address it was
+built for - asking, not insisting - and then follows pointers stored inside the
+file. It read seventeen megabytes into the range it had asked for and died
+there, saying `unmapped memory read` and nothing about PCH. Fixed upstream in
+x86_emu_cpp: the hint is honoured when the range is free. `X86EMU_MMAP_TRACE=1`
+prints every mapping with MOVED against the ones that were relocated, which is
+the whole diagnosis.
+
+The remaining idea, unmeasured: a second .gch built for `-O0 -g`, so the debug
+setting gets this too. Another 4.6 MB and another 100 s of build; whether the
+debug option is used enough to be worth it is a judgement, not a measurement.
 
 And a measurement that says where any of this would have to pay off. The C++
 compile, by stage (`tools/wslstages.sh`, native emulator):
